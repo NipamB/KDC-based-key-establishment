@@ -6,13 +6,114 @@
 #include <string.h> 
 #include <sys/socket.h> 
 #include <sys/types.h> 
-#include "aes.h"
+#include <openssl/conf.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
 #define SA struct sockaddr
 #define MAX 100
 
 char *outfilename, *pwdfile;
 unsigned char *key, *iv;
 
+void handleErrors(void)
+{
+    ERR_print_errors_fp(stderr);
+    abort();
+}
+
+int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *key,
+            unsigned char *iv, unsigned char *ciphertext)
+{
+    EVP_CIPHER_CTX *ctx;
+
+    int len;
+
+    int ciphertext_len;
+
+    /* Create and initialise the context */
+    if(!(ctx = EVP_CIPHER_CTX_new()))
+        handleErrors();
+
+    /*
+     * Initialise the encryption operation. IMPORTANT - ensure you use a key
+     * and IV size appropriate for your cipher
+     * In this example we are using 256 bit AES (i.e. a 256 bit key). The
+     * IV size for *most* modes is the same as the block size. For AES this
+     * is 128 bits
+     */
+    if(1 != EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv))
+        handleErrors();
+
+    /*
+     * Provide the message to be encrypted, and obtain the encrypted output.
+     * EVP_EncryptUpdate can be called multiple times if necessary
+     */
+    if(1 != EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len))
+        handleErrors();
+    ciphertext_len = len;
+
+    /*
+     * Finalise the encryption. Further ciphertext bytes may be written at
+     * this stage.
+     */
+    if(1 != EVP_EncryptFinal_ex(ctx, ciphertext + len, &len))
+        handleErrors();
+    ciphertext_len += len;
+
+    /* Clean up */
+    EVP_CIPHER_CTX_free(ctx);
+
+    return ciphertext_len;
+}
+
+
+int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key,
+            unsigned char *iv, unsigned char *plaintext)
+{
+    EVP_CIPHER_CTX *ctx;
+
+    int len;
+
+    int plaintext_len;
+
+    /* Create and initialise the context */
+    if(!(ctx = EVP_CIPHER_CTX_new()))
+        handleErrors();
+
+    /*
+     * Initialise the decryption operation. IMPORTANT - ensure you use a key
+     * and IV size appropriate for your cipher
+     * In this example we are using 256 bit AES (i.e. a 256 bit key). The
+     * IV size for *most* modes is the same as the block size. For AES this
+     * is 128 bits
+     */
+    if(1 != EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv))
+        handleErrors();
+
+    /*
+     * Provide the message to be decrypted, and obtain the plaintext output.
+     * EVP_DecryptUpdate can be called multiple times if necessary.
+     */
+    if(1 != EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len))
+        handleErrors();
+    plaintext_len = len;
+
+    /*
+     * Finalise the decryption. Further plaintext bytes may be written at
+     * this stage.
+     */
+    if(1 != EVP_DecryptFinal_ex(ctx, plaintext + len, &len))
+        handleErrors();
+    plaintext_len += len;
+
+    /* Clean up */
+    EVP_CIPHER_CTX_free(ctx);
+
+    return plaintext_len;
+}
+
+char clientNameArray[MAX][12], clientMasterKeyArray[MAX][12], ipaddrArray[MAX][16], clientPortNumArray[MAX][8];
+int regmsg[MAX];
 
 void func(int sockfd) {
     char buff[MAX];
@@ -25,10 +126,13 @@ void func(int sockfd) {
 
         printf("From client: %s", buff);
 
+        int counter = 0;
+
         char* token = strtok(buff, "|");
-        if(strcmp(token, " 301") == 0) {
+        int type = atoi(token);
+        if(type == 301) {
             puts("registration message");
-            int regmsg, i = 0, j, k;
+            int i = 0, j, k;
             char **array = (char**)malloc(5*sizeof(char*));  
             while(token != NULL) {
                 array[i] = token;
@@ -36,15 +140,30 @@ void func(int sockfd) {
                 i++;
             }
             
-            unsigned char encryptedKey[128];
+            unsigned char encryptedKey[128], encodedEncKey[128];
             int encryptedKey_len = encrypt(array[3], strlen(array[3]), key, iv, encryptedKey);
+            int temp = EVP_EncodeBlock((unsigned char*)encodedEncKey, encryptedKey, encryptedKey_len);
 
+            int index = find(clientNameArray, array[4]);
+            if(index != -1) {   // if found at an index
+                strcpy(clientMasterKeyArray[index], encodedEncKey);
+            }
+            else {
+                clientNameArray[counter] = array[4];
+                clientMasterKeyArray[counter] = encodedEncKey;
+                clientPortNumArray[counter] = array[2];
+                ipaddrArray[counter] = array[1];
+                regmsg[counter] = atoi(array[0]);
+                counter++;
 
-            FILE* fp;
-            fp = fopen(pwdfile, "w");
-            fprintf(fp,":%s:%s:%s:%s:\n", array[4], array[1], array[2], array[3]);
-            
-            fflush(fp);
+                FILE* fp;
+                fp = fopen(pwdfile, "w");
+                fprintf(fp,":%s:%s:%s:%s:\n", array[4], array[1], array[2], encodedEncKey);
+                
+                fflush(fp);
+
+                fclose(fp);
+            }
             
             buff[0] = '|';
             for(j = 0; array[0][j] != '\0'; j++) {
@@ -61,7 +180,15 @@ void func(int sockfd) {
             write(sockfd, buff, sizeof(buff));    
         }
 
-        else {
+        else if(type == 305) {
+            puts("key request message");
+            int i = 0, j, k;
+            char **array = (char**)malloc(3*sizeof(char*));  
+            while(token != NULL) {
+                array[i] = token;
+                token = strtok(NULL, "|");
+                i++;
+            }
 
         }
         
