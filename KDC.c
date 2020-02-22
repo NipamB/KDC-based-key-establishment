@@ -6,6 +6,8 @@
 #include <string.h> 
 #include <sys/socket.h> 
 #include <sys/types.h>
+#include <arpa/inet.h>
+#include <time.h>
 
 char *clientIpAddr[1024], *clientPortNum[1024], *clientMasterKey[1024], *clientName[1024];
 int numOfReg;
@@ -19,28 +21,10 @@ int find(char **array, char* reqString, int n) {
     return -1;
 }
 
-void receive_message(char* port, char* outfile, char* passwdfile) {
-    int socket_id, newsocket;
-    char buffer[1024];
-    struct sockaddr_in serverAddr;
-    struct sockaddr_storage serverStorage;
-    socklen_t addr_size;
-
-    socket_id = socket(AF_INET, SOCK_STREAM, 0);
+void receive_message(char* port, char* outfile, char* passwdfile, int newsocket) {
     
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(atoi(port));
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
-
-    bind(socket_id, (struct sockaddr *) &serverAddr, sizeof(serverAddr));
-
-    listen(socket_id, 5);
-
-    addr_size = sizeof serverStorage;
-
-    newsocket = accept(socket_id, (struct sockaddr *) &serverStorage, &addr_size);
-
+    char buffer[1024];
+    
     read(newsocket, buffer, 1024);
 
     printf("%s\n", buffer);
@@ -65,7 +49,6 @@ void receive_message(char* port, char* outfile, char* passwdfile) {
         else {
             clientMasterKey[index] = r[3];
         }
-
         FILE *pwd;
         pwd = fopen(passwdfile, "w");
         fprintf(pwd, ":%s:%s:%s:%s:\n", r[4], r[1], r[2], r[3]); 
@@ -81,8 +64,6 @@ void receive_message(char* port, char* outfile, char* passwdfile) {
 
         write(newsocket, buffer, 1024);
 
-        fclose(newsocket);
-
     }
     else if(atoi(token) == 305) {
         puts("key request message");
@@ -95,20 +76,17 @@ void receive_message(char* port, char* outfile, char* passwdfile) {
         }
 
         //decrypt r[1] and store it in "decrypted"
-        char decrypted[1024];
+        char *decrypted = r[1];
 
-        
-        char idA[12], idB[12], nonce1[4];
+        char *s[3];
 
-        memset(idA, '\0', sizeof(idA));
-        memset(idB, '\0', sizeof(idB));
-        memset(nonce1, '\0', sizeof(nonce1));
-        
-        strncpy(idA, decrypted, 12);
-        strncpy(idB, decrypted+12, 12);
-        strncpy(nonce1, decrypted+24, 4);
+        char *token2 = strtok(decrypted, "$");
+        int l = 0;
+        while(token2 != NULL) {
+            s[l++] = token2;
+            token2 = strtok(NULL, "$");
+        }
 
-        
         char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         char sharedKey[8];
         srand(time(0));
@@ -117,14 +95,14 @@ void receive_message(char* port, char* outfile, char* passwdfile) {
         }
 
         
-        int indexB = find(clientName, idB, numOfReg);
-        int indexA = find(clientName, idA, numOfReg);
+        int indexB = find(clientName, s[1], numOfReg);
+        int indexA = find(clientName, s[0], numOfReg);
         
         char str2[1024];
         strcpy(str2, sharedKey);
-        strcat(str2, idA);
-        strcat(str2, idB);
-        strcat(str2, nonce1);
+        strcat(str2, s[0]);
+        strcat(str2, s[1]);
+        strcat(str2, s[2]);
         strcat(str2, clientIpAddr[indexA]);
         strcat(str2, clientPortNum[indexA]);
 
@@ -132,9 +110,9 @@ void receive_message(char* port, char* outfile, char* passwdfile) {
 
         char str1[1024];
         strcpy(str1, sharedKey);
-        strcat(str1, idA);
-        strcat(str1, idB);
-        strcat(str1, nonce1);
+        strcat(str1, s[0]);
+        strcat(str1, s[1]);
+        strcat(str1, s[2]);
         strcat(str1, clientIpAddr[indexB]);
         strcat(str1, clientPortNum[indexB]);
         strcat(str1, str2); // replace str2 with encryption of str2 with B's key
@@ -147,32 +125,30 @@ void receive_message(char* port, char* outfile, char* passwdfile) {
 
         write(newsocket, buffer, 1024);
 
-        fclose(newsocket);
-
         int clientSocket;
-        struct sockaddr_in serverAddr;
+        struct sockaddr_in serverAddr2;
         socklen_t addr_size;
 
         clientSocket = socket(PF_INET, SOCK_STREAM, 0);
         
-        serverAddr.sin_family = AF_INET;
-        serverAddr.sin_port = htons(atoi(clientPortNum[indexB]));
-        serverAddr.sin_addr.s_addr = inet_addr(clientIpAddr[indexB]);
+        serverAddr2.sin_family = AF_INET;
+        serverAddr2.sin_port = htons(atoi(clientPortNum[indexB]));
+        serverAddr2.sin_addr.s_addr = inet_addr(clientIpAddr[indexB]);
 
-        memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
+        memset(serverAddr2.sin_zero, '\0', sizeof serverAddr2.sin_zero);
         
-        addr_size = sizeof serverAddr;
+        addr_size = sizeof serverAddr2;
 
-        connect(clientSocket, (struct sockaddr *) &serverAddr, addr_size);
+        connect(clientSocket, (struct sockaddr *) &serverAddr2, addr_size);
 
         strcpy(buffer, "|309|");
         strcat(buffer, str2); // instead of str2, use encryption of str2 using B's key
-        strcat(buffer, idA);
+        strcat(buffer, s[0]);
         strcat(buffer, "|");
-        
+
         write(clientSocket, buffer, 1024);
 
-        fclose(clientSocket);
+        close(clientSocket);
     }
 
     return;
@@ -206,7 +182,63 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    receive_message(port, outfile, passwdfile);
+    FILE* out = fopen(outfile, "w");
+
+    int socket_id, newsocket;
+    struct sockaddr_in serverAddr;
+    struct sockaddr_storage serverStorage;
+    socklen_t addr_size;
+
+    socket_id = socket(AF_INET, SOCK_STREAM, 0);
+    if(socket_id == -1) {
+        fprintf(out, "socket creation failed...\n");
+        exit(0);
+    }
+    else {
+        fprintf(out, "socket successfully created...\n");
+    }
+    
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(atoi(port));
+    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
+
+    if((bind(socket_id, (struct sockaddr *) &serverAddr, sizeof(serverAddr))) != 0) {
+        fprintf(out, "socket bind failed...\n");
+        exit(0);
+    }
+    else {
+        fprintf(out, "Socket successfully binded...\n");
+    }
+
+    if (listen(socket_id, 5) != 0) {
+        fprintf(out, "Listen failed...\n");
+        exit(0);
+    }
+    else {
+        fprintf(out, "Server listening...\n");
+    }
+
+    addr_size = sizeof serverStorage;
+
+    newsocket = accept(socket_id, (struct sockaddr *) &serverStorage, &addr_size);
+    if(newsocket < 0) {
+        fprintf(out, "server accepted failed...\n");
+        exit(0);
+    }
+    else {
+        fprintf(out, "server accept the client...\n");
+    }
+
+    fclose(out);
+    
+    int m = 0;
+    while(m < 2) {
+        receive_message(port, outfile, passwdfile, newsocket);
+        m++;
+    }
+    
+    close(newsocket);
 
     return 0;
 }
