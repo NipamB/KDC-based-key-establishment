@@ -5,217 +5,197 @@
 #include <stdlib.h> 
 #include <string.h> 
 #include <sys/socket.h> 
-#include <sys/types.h> 
-#include <openssl/conf.h>
-#include <openssl/evp.h>
-#include <openssl/err.h>
-#define SA struct sockaddr
-#define MAX 100
+#include <sys/types.h>
 
-char *outfilename, *pwdfile;
-unsigned char *key, *iv;
+char *clientIpAddr[1024], *clientPortNum[1024], *clientMasterKey[1024], *clientName[1024];
+int numOfReg;
 
-void handleErrors(void)
-{
-    ERR_print_errors_fp(stderr);
-    abort();
-}
-
-int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *key,
-            unsigned char *iv, unsigned char *ciphertext)
-{
-    EVP_CIPHER_CTX *ctx;
-
-    int len;
-
-    int ciphertext_len;
-
-    /* Create and initialise the context */
-    if(!(ctx = EVP_CIPHER_CTX_new()))
-        handleErrors();
-
-    /*
-     * Initialise the encryption operation. IMPORTANT - ensure you use a key
-     * and IV size appropriate for your cipher
-     * In this example we are using 256 bit AES (i.e. a 256 bit key). The
-     * IV size for *most* modes is the same as the block size. For AES this
-     * is 128 bits
-     */
-    if(1 != EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv))
-        handleErrors();
-
-    /*
-     * Provide the message to be encrypted, and obtain the encrypted output.
-     * EVP_EncryptUpdate can be called multiple times if necessary
-     */
-    if(1 != EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len))
-        handleErrors();
-    ciphertext_len = len;
-
-    /*
-     * Finalise the encryption. Further ciphertext bytes may be written at
-     * this stage.
-     */
-    if(1 != EVP_EncryptFinal_ex(ctx, ciphertext + len, &len))
-        handleErrors();
-    ciphertext_len += len;
-
-    /* Clean up */
-    EVP_CIPHER_CTX_free(ctx);
-
-    return ciphertext_len;
-}
-
-
-int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key,
-            unsigned char *iv, unsigned char *plaintext)
-{
-    EVP_CIPHER_CTX *ctx;
-
-    int len;
-
-    int plaintext_len;
-
-    /* Create and initialise the context */
-    if(!(ctx = EVP_CIPHER_CTX_new()))
-        handleErrors();
-
-    /*
-     * Initialise the decryption operation. IMPORTANT - ensure you use a key
-     * and IV size appropriate for your cipher
-     * In this example we are using 256 bit AES (i.e. a 256 bit key). The
-     * IV size for *most* modes is the same as the block size. For AES this
-     * is 128 bits
-     */
-    if(1 != EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv))
-        handleErrors();
-
-    /*
-     * Provide the message to be decrypted, and obtain the plaintext output.
-     * EVP_DecryptUpdate can be called multiple times if necessary.
-     */
-    if(1 != EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len))
-        handleErrors();
-    plaintext_len = len;
-
-    /*
-     * Finalise the decryption. Further plaintext bytes may be written at
-     * this stage.
-     */
-    if(1 != EVP_DecryptFinal_ex(ctx, plaintext + len, &len))
-        handleErrors();
-    plaintext_len += len;
-
-    /* Clean up */
-    EVP_CIPHER_CTX_free(ctx);
-
-    return plaintext_len;
-}
-
-char clientNameArray[MAX][12], clientMasterKeyArray[MAX][12], ipaddrArray[MAX][16], clientPortNumArray[MAX][8];
-int regmsg[MAX];
-
-void func(int sockfd) {
-    char buff[MAX];
-    int n;
-
-    while(1) {
-        bzero(buff, MAX);
-
-        read(sockfd, buff, sizeof(buff));
-
-        printf("From client: %s", buff);
-
-        int counter = 0;
-
-        char* token = strtok(buff, "|");
-        int type = atoi(token);
-        if(type == 301) {
-            puts("registration message");
-            int i = 0, j, k;
-            char **array = (char**)malloc(5*sizeof(char*));  
-            while(token != NULL) {
-                array[i] = token;
-                token = strtok(NULL, "|");
-                i++;
-            }
-            
-            unsigned char encryptedKey[128], encodedEncKey[128];
-            int encryptedKey_len = encrypt(array[3], strlen(array[3]), key, iv, encryptedKey);
-            int temp = EVP_EncodeBlock((unsigned char*)encodedEncKey, encryptedKey, encryptedKey_len);
-
-            int index = find(clientNameArray, array[4]);
-            if(index != -1) {   // if found at an index
-                strcpy(clientMasterKeyArray[index], encodedEncKey);
-            }
-            else {
-                clientNameArray[counter] = array[4];
-                clientMasterKeyArray[counter] = encodedEncKey;
-                clientPortNumArray[counter] = array[2];
-                ipaddrArray[counter] = array[1];
-                regmsg[counter] = atoi(array[0]);
-                counter++;
-
-                FILE* fp;
-                fp = fopen(pwdfile, "w");
-                fprintf(fp,":%s:%s:%s:%s:\n", array[4], array[1], array[2], encodedEncKey);
-                
-                fflush(fp);
-
-                fclose(fp);
-            }
-            
-            buff[0] = '|';
-            for(j = 0; array[0][j] != '\0'; j++) {
-                buff[j+1] = array[0][j];
-            }
-            
-            buff[j+1] = '|';
-            for(k = 0; array[4][k] != '\0'; k++) {
-                buff[j+2+k] = array[4][k];
-            }
-            buff[j+2+k] = '|';
-            buff[j+3+k] = '\n';
-            buff[j+4+k] = '\0';
-            write(sockfd, buff, sizeof(buff));    
+int find(char **array, char* reqString, int n) {
+    for(int i = 0; i < n; i++) {
+        if(strcmp(array[i], reqString) == 0) {
+            return i;
         }
-
-        else if(type == 305) {
-            puts("key request message");
-            int i = 0, j, k;
-            char **array = (char**)malloc(3*sizeof(char*));  
-            while(token != NULL) {
-                array[i] = token;
-                token = strtok(NULL, "|");
-                i++;
-            }
-
-        }
-        
-
-        if (strncmp("exit", buff, 4) == 0) { 
-			printf("Server Exit...\n"); 
-			break; 
-		} 
     }
+    return -1;
+}
+
+void receive_message(char* port, char* outfile, char* passwdfile) {
+    int socket_id, newsocket;
+    char buffer[1024];
+    struct sockaddr_in serverAddr;
+    struct sockaddr_storage serverStorage;
+    socklen_t addr_size;
+
+    socket_id = socket(AF_INET, SOCK_STREAM, 0);
+    
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(atoi(port));
+    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
+
+    bind(socket_id, (struct sockaddr *) &serverAddr, sizeof(serverAddr));
+
+    listen(socket_id, 5);
+
+    addr_size = sizeof serverStorage;
+
+    newsocket = accept(socket_id, (struct sockaddr *) &serverStorage, &addr_size);
+
+    read(newsocket, buffer, 1024);
+
+    printf("%s\n", buffer);
+
+    char * token = strtok(buffer, "|");
+    if(atoi(token) == 301) {
+        puts("registration message");
+        char* r[5];
+        int i = 0;
+        while(token != NULL) {
+            r[i++] = token;
+            token = strtok(NULL, "|");
+        }
+        int index;
+        if((index = find(clientName, r[4], numOfReg)) == -1) {
+            clientName[numOfReg] = r[4];
+            clientMasterKey[numOfReg] = r[3];
+            clientPortNum[numOfReg] = r[2];
+            clientIpAddr[numOfReg] = r[1];
+            numOfReg++;
+        }
+        else {
+            clientMasterKey[index] = r[3];
+        }
+
+        FILE *pwd;
+        pwd = fopen(passwdfile, "w");
+        fprintf(pwd, ":%s:%s:%s:%s:\n", r[4], r[1], r[2], r[3]); 
+        // instead of r[3], use encryption of r[3] using KDC's password
+        
+        fflush(pwd);
+
+        fclose(pwd);
+
+        strcpy(buffer, "|302|");
+        strcat(buffer, r[4]);
+        strcat(buffer, "|");
+
+        write(newsocket, buffer, 1024);
+
+        fclose(newsocket);
+
+    }
+    else if(atoi(token) == 305) {
+        puts("key request message");
+
+        char* r[3];
+        int i = 0;
+        while(token != NULL) {
+            r[i++] = token;
+            token = strtok(NULL, "|");
+        }
+
+        //decrypt r[1] and store it in "decrypted"
+        char decrypted[1024];
+
+        
+        char idA[12], idB[12], nonce1[4];
+
+        memset(idA, '\0', sizeof(idA));
+        memset(idB, '\0', sizeof(idB));
+        memset(nonce1, '\0', sizeof(nonce1));
+        
+        strncpy(idA, decrypted, 12);
+        strncpy(idB, decrypted+12, 12);
+        strncpy(nonce1, decrypted+24, 4);
+
+        
+        char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        char sharedKey[8];
+        srand(time(0));
+        for(int j = 0; j < 8; j++) {
+            sharedKey[j] = charset[rand() % 62];
+        }
+
+        
+        int indexB = find(clientName, idB, numOfReg);
+        int indexA = find(clientName, idA, numOfReg);
+        
+        char str2[1024];
+        strcpy(str2, sharedKey);
+        strcat(str2, idA);
+        strcat(str2, idB);
+        strcat(str2, nonce1);
+        strcat(str2, clientIpAddr[indexA]);
+        strcat(str2, clientPortNum[indexA]);
+
+        // encrypt str2 using B's key
+
+        char str1[1024];
+        strcpy(str1, sharedKey);
+        strcat(str1, idA);
+        strcat(str1, idB);
+        strcat(str1, nonce1);
+        strcat(str1, clientIpAddr[indexB]);
+        strcat(str1, clientPortNum[indexB]);
+        strcat(str1, str2); // replace str2 with encryption of str2 with B's key
+
+        //encrypt str1 using A's key
+
+        strcpy(buffer, "|306|");
+        strcat(buffer, str1); // replace str1 with encryption of str1 using A's key
+        strcat(buffer, "|");
+
+        write(newsocket, buffer, 1024);
+
+        fclose(newsocket);
+
+        int clientSocket;
+        struct sockaddr_in serverAddr;
+        socklen_t addr_size;
+
+        clientSocket = socket(PF_INET, SOCK_STREAM, 0);
+        
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_port = htons(atoi(clientPortNum[indexB]));
+        serverAddr.sin_addr.s_addr = inet_addr(clientIpAddr[indexB]);
+
+        memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
+        
+        addr_size = sizeof serverAddr;
+
+        connect(clientSocket, (struct sockaddr *) &serverAddr, addr_size);
+
+        strcpy(buffer, "|309|");
+        strcat(buffer, str2); // instead of str2, use encryption of str2 using B's key
+        strcat(buffer, idA);
+        strcat(buffer, "|");
+        
+        write(clientSocket, buffer, 1024);
+
+        fclose(clientSocket);
+    }
+
+    return;
+
 }
 
 int main(int argc, char* argv[]) {
-    int opt, PORT;
-    
-    while((opt = getopt(argc, argv, ":p:o:f:")) != -1){
+    int opt;
+    char *port, *outfile, *passwdfile;
+
+    while((opt = getopt(argc, argv, ":p:o:f:")) != -1) {
         switch(opt) {
             case 'p':
-                PORT = atoi(optarg);
-                printf("portid = %s\n", optarg);
+                port = optarg;
+                printf("port = %s\n", port);
                 break;
             case 'o':
-                outfilename = optarg;
-                printf("outfilename = %s\n", optarg);
+                outfile = optarg;
+                printf("outfile = %s\n", outfile);
                 break;
             case 'f':
-                pwdfile = optarg;
-                printf("pwdfile = %s\n", optarg);
+                passwdfile = optarg;
+                printf("passwdfile = %s\n", passwdfile);
                 break;
             case ':':
                 printf("option needs a value\n");
@@ -226,33 +206,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    for(; optind < argc; optind++){      
-        printf("extra arguments: %s\n", argv[optind]);  
-    }
-
-    int sockfd, connfd, len;
-    struct sockaddr_in servaddr, cli;
-
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-    bzero(&servaddr, sizeof(servaddr));
-
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port = htons(PORT);
-
-    bind(sockfd, (SA*)&servaddr, sizeof(servaddr));
-
-    listen(sockfd, 5);
-
-    len = sizeof(cli);
-
-    connfd = accept(sockfd, (SA*)&cli, &len);
-
-    func(connfd);
-
-    //after communication, close this socket
-    close(sockfd);
+    receive_message(port, outfile, passwdfile);
 
     return 0;
 }
