@@ -16,9 +16,11 @@
 #include <openssl/aes.h>
 #include <openssl/rand.h>
 #include <openssl/aes.h>
+#include <arpa/inet.h>
 
 char *clientIpAddr[1024], *clientPortNum[1024], *clientMasterKey[1024], *clientName[1024];
 int numOfReg;
+char* temp = "4qXeRAQBd7wzbmG";
 
 void handleErrors(void)
 {
@@ -222,11 +224,17 @@ int find(char **array, char* reqString, int n) {
 
 void receive_message(char* port, char* outfile, char* passwdfile, int newsocket) {
     
+    unsigned char *kdc_key = "asdfghjklzxcvbnm";
+
+    unsigned char *iv = (unsigned char *)malloc(AES_BLOCK_SIZE*sizeof(unsigned char));
+    // unsigned char iv[AES_BLOCK_SIZE];
+    memset(iv, 0x00, AES_BLOCK_SIZE);
+
     char buffer[1024];
     
     read(newsocket, buffer, 1024);
 
-    printf("%s\n", buffer);
+    // printf("%s\n", buffer);
 
     char * token = strtok(buffer, "|");
     if(atoi(token) == 301) {
@@ -239,21 +247,35 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         }
         int index;
         if((index = find(clientName, r[4], numOfReg)) == -1) {
-            clientName[numOfReg] = r[4];
-            clientMasterKey[numOfReg] = r[3];
-            clientPortNum[numOfReg] = r[2];
-            clientIpAddr[numOfReg] = r[1];
-            printf("%s : %d\n", r[1], numOfReg);
+            // puts("correct case");
+            clientName[numOfReg] = (char*)malloc(strlen(r[4]));
+            strcpy(clientName[numOfReg], r[4]);
+            clientMasterKey[numOfReg] = (char*)malloc(strlen(r[3]));
+            strcpy(clientMasterKey[numOfReg], r[3]);
+            clientPortNum[numOfReg] = (char*)malloc(strlen(r[2]));
+            strcpy(clientPortNum[numOfReg], r[2]);
+            clientIpAddr[numOfReg] = (char*)malloc(strlen(r[1]));
+            strcpy(clientIpAddr[numOfReg], r[1]);
+            // printf("%s : %d\n", r[1], numOfReg);
             numOfReg++;
         }
         else {
             clientMasterKey[index] = r[3];
         }
-        FILE *pwd;
-        pwd = fopen(passwdfile, "w");
-        fprintf(pwd, ":%s:%s:%s:%s:\n", r[4], r[1], r[2], r[3]); 
+
+         
         // instead of r[3], use encryption of r[3] using KDC's password
         
+        int ciphertext_len;
+
+        char ciphertext_base64[1024];
+
+        ciphertext_len = myencrypt(r[3],kdc_key,iv,ciphertext_base64);
+
+        FILE *pwd;
+        pwd = fopen(passwdfile, "a");
+        fprintf(pwd, ":%s:%s:%s:%s:\n", r[4], r[1], r[2], ciphertext_base64);
+
         fflush(pwd);
 
         fclose(pwd);
@@ -263,6 +285,8 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         strcat(buffer, "|");
 
         write(newsocket, buffer, 1024);
+
+        printf("%s successfully registered\n", r[4]);
 
     }
     else if(atoi(token) == 305) {
@@ -275,20 +299,23 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
             token = strtok(NULL, "|");
         }
 
+        char ida[20];
+        strcpy(ida,r[3]);
+
+        int indexA = find(clientName, ida, numOfReg);
+
         //decrypt r[1] and store it in "decrypted"
         int len = atoi(r[2]);
 
-        unsigned char *key = "verybadkeyqwerty";
-        unsigned char *iv = (unsigned char *)malloc(AES_BLOCK_SIZE*sizeof(unsigned char));
-        // unsigned char iv[AES_BLOCK_SIZE];
-        memset(iv, 0x00, AES_BLOCK_SIZE);
+        unsigned char key[16];
+        strcpy(key, clientMasterKey[indexA]);
         
         unsigned char decrypted[1024];
         // printf("%s\n", r[1]);
         mydecrypt(r[1],key,iv,len,decrypted);
         // char *decrypted = r[1];
 
-        printf("decrypted : %s\n", decrypted);
+        // printf("decrypted : %s\n", decrypted);
 
         char *s[3];
 
@@ -305,22 +332,41 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         for(int j = 0; j < 8; j++) {
             sharedKey[j] = charset[rand() % 62];
         }
+        sharedKey[15] = '\0';
+        strcpy(sharedKey, temp);
+        // printf("shared key = %s\n", sharedKey);
+        // printf("%s\n", s[1]);
 
-        
+        // printf("number of registrations = %d\n", numOfReg);
+        // printf("clientName array = %s\t%s\n", clientName[0], clientName[1]);
+
         int indexB = find(clientName, s[1], numOfReg);
-        int indexA = find(clientName, s[0], numOfReg);
+        // int indexA = find(clientName, s[0], numOfReg);
 
+<<<<<<< HEAD
+        // printf("%d %d\n", indexA, indexB);
+        // printf("%s\n", clientIpAddr[0]);
+        
+        char str2[1024];
+        strncpy(str2, sharedKey, 16);
+        strcat(str2,"$");
+=======
         // printf("%s\n", clientIpAddr[0]);
         
         char str2[1024];
         strncpy(str2, sharedKey, 8);
+>>>>>>> 6304bd9b81bb667f9fa460023b7b3a6f1e28f8ed
         strcat(str2, s[0]);
+        strcat(str2,"$");
         strcat(str2, s[1]);
+        strcat(str2,"$");
         strcat(str2, s[2]);
+        strcat(str2,"$");
         strcat(str2, clientIpAddr[indexA]);
+        strcat(str2,"$");
         strcat(str2, clientPortNum[indexA]);
 
-        printf("str2 : %s\n", str2);
+        // printf("str2 : %s\n", str2);
         // encrypt str2 using B's key
 
         unsigned char *key_b = "qwertyuiopasdfgh";
@@ -338,15 +384,26 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         char length[10];
         sprintf(length,"%d",ciphertext_len);
 
+        strcat(str2,"$");
         strcat(str2,length);
 
         char str1[1024];
+<<<<<<< HEAD
+        strncpy(str1, sharedKey, 16);
+        strcat(str1,"$");
+=======
         strncpy(str1, sharedKey, 8);
+>>>>>>> 6304bd9b81bb667f9fa460023b7b3a6f1e28f8ed
         strcat(str1, s[0]);
+        strcat(str1,"$");
         strcat(str1, s[1]);
+        strcat(str1,"$");
         strcat(str1, s[2]);
+        strcat(str1,"$");
         strcat(str1, clientIpAddr[indexB]);
+        strcat(str1,"$");
         strcat(str1, clientPortNum[indexB]);
+        strcat(str1,"$");
         strcat(str1, str2); // replace str2 with encryption of str2 with B's key
 
         //encrypt str1 using A's key
@@ -371,6 +428,8 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         strcat(buffer,"|");
 
         write(newsocket, buffer, 1024);
+
+        printf("key has been sent to %s\n", ida);
         ////////////////////////////////////////////
 
         // int clientSocket;

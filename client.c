@@ -14,6 +14,7 @@
 #include <openssl/buffer.h>
 #include <assert.h>
 #include <openssl/aes.h>
+#include <arpa/inet.h>
 
 int Nonce = 1000;
 unsigned char *iv;
@@ -259,15 +260,17 @@ int registration(char buffer[], int clientSocket, char *name, char * clientip, c
 
     // printf("%s %s\n",received[0],received[1]);
     // if(strcmp(received[0],"302") == 0 && strcmp(received[1],clientname) == 0)
-    //     return 1;
-    // return 0;
+    //     printf("user : %s\n", received[1]);
+    // else
+    //     printf("incorrect\n");
 
     printf("%s registered in KDC\n", name);
     return 1;
 }
 
-void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char nonce1[], char *othername)
+void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char nonce1[], char *othername, unsigned char *secert_key, unsigned char *iv)
 {
+    // printf("%s %d\n", ipaddr_b, port_b);
     int clientSocket;
     char buffer[1024];
     struct sockaddr_in serverAddr;
@@ -290,6 +293,8 @@ void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char 
     strcat(buffer,"|");
     strcat(buffer,name);
     strcat(buffer,"|");
+
+    // printf("sent to b : %s\n", buffer);
 
     write(clientSocket,buffer,1024);
 
@@ -314,7 +319,20 @@ void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char 
     if(atoi(nonce1)+1 == atoi(r[1])){
         //send desired message to client B
         char * message = "hello there! nice meeting you";
-        strcpy(buffer,message);
+        // strcpy(buffer,message);
+
+        int ciphertext_len;
+
+        char ciphertext_base64[1024];
+
+        ciphertext_len = myencrypt(message,secert_key,iv,ciphertext_base64);
+
+        char len[10];
+        sprintf(len,"%d",ciphertext_len);
+
+        strcpy(buffer,ciphertext_base64);
+        strcat(buffer,"|");
+        strcat(buffer,len);
 
         printf("%s sending desired message to %s\n", name, othername);
 
@@ -407,30 +425,56 @@ void requestKey(char buffer[], int clientSocket, char *name, char *othername, un
     //send key request message to KDC
     write(clientSocket,buffer,1024);
 
+    printf("Sent 305 message to KDC\n");
+
     //get the secret key appended with the message to be sent to the other client
     read(clientSocket,buffer,1024);
 
-    printf("%s\n", buffer);
+    // printf("%s\n", buffer);
 
     printf("%s got the key of %s from KDC\n", name, othername);
 
     //break the received message from KDC
-    // char *r1[2];
-    // char * token1 = strtok(buffer, "|");
-    // int i = 0;
-    // while( token1 != NULL ) {
-    //     r1[i++] = token1;
-    //     token1 = strtok(NULL, "|");
-    // }
+    char *r1[3];
+    char * token1 = strtok(buffer, "|");
+    int i = 0;
+    while( token1 != NULL ) {
+        r1[i++] = token1;
+        token1 = strtok(NULL, "|");
+    }
+
+    // printf("r1 : %s\n", r1[2]);
+
+    int len = atoi(r1[2]);
+
+    // unsigned char *key = "verybadkeyqwerty";
+    // unsigned char *iv = (unsigned char *)malloc(AES_BLOCK_SIZE*sizeof(unsigned char));
+    // unsigned char iv[AES_BLOCK_SIZE];
+    // memset(iv, 0x00, AES_BLOCK_SIZE);
+    
+    // printf("key : %s\n", key);
+    unsigned char decrypted[1024];
+    // printf("%s\n", r[1]);
+    mydecrypt(r1[1],key,iv,len,decrypted);
+    // char *decrypted = r[1];
+
+    // printf("decrypted : %s\n", decrypted);
 
     // //break the message encrypted with A's key to get B's ip address and port number
-    // char *r2[2];
-    // char * token2 = strtok(r1[1], "#");
-    // i = 0;
-    // while( token2 != NULL ) {
-    //     r2[i++] = token2;
-    //     token2 = strtok(NULL, "#");
-    // }
+    char *r2[8];
+    char * token2 = strtok(decrypted, "$");
+    i = 0;
+    while( token2 != NULL ) {
+        r2[i++] = token2;
+        token2 = strtok(NULL, "$");
+    }
+
+    // printf("b message : %s\n", r2[6]);
+
+    char message_b[1024];
+    strcpy(message_b,r2[6]);
+    strcat(message_b,"|");
+    strcat(message_b,r2[7]);
 
 
     // char *r3[2];
@@ -441,11 +485,15 @@ void requestKey(char buffer[], int clientSocket, char *name, char *othername, un
     //     token3 = strtok(NULL, "$");
     // }
 
-    // char * ipaddr_b = r3[4];
-    // int port_b = atoi(r3[5]);
+    char * ipaddr_b = r2[4];
+    int port_b = atoi(r2[5]);
+
+    char *sercet_key = r2[0];
+    // printf("Port : %d",port_b);
+    // char nonce1[10] = r2[3];
 
     // //after getting B's ip address and port number, send message to B
-    // send_message(r2[1], name, ipaddr_b, port_b, nonce1, othername);
+    send_message(message_b, name, ipaddr_b, port_b, nonce1, othername, sercet_key, iv);
 }
 
 void client(char *name, char *othername, char *inputfile, char *kdcip, int kdcport, unsigned char *iv)
@@ -486,7 +534,7 @@ void client(char *name, char *othername, char *inputfile, char *kdcip, int kdcpo
     close(clientSocket);
 }
 
-void recieve_message(char *port, char *name, char *outenc, char *outfile)
+void recieve_message(char *port, char *name, char *outenc, char *outfile, unsigned char * key, unsigned char *iv)
 {
     int welcomeSocket, newSocket;
     char buffer[1024];
@@ -519,7 +567,7 @@ void recieve_message(char *port, char *name, char *outenc, char *outfile)
     // printf("%s\n", buffer);
 
     //break to message to extract secrey key and nonce
-    char *r[3];
+    char *r[4];
     char * token = strtok(buffer, "|");
     int i = 0;
     while( token != NULL ) {
@@ -527,18 +575,31 @@ void recieve_message(char *port, char *name, char *outenc, char *outfile)
         token = strtok(NULL, "|");
     }
 
-    char *r1[2];
-    char * token1 = strtok(r[1], "$");
+    int len = atoi(r[2]);
+
+    unsigned char decrypted[1024];
+    // printf("%s\n", r[1]);
+    mydecrypt(r[1],key,iv,len,decrypted);
+    // char *decrypted = r[1];
+
+    // printf("decrypted : %s\n", decrypted);
+
+    char *r1[6];
+    char * token1 = strtok(decrypted, "$");
     i = 0;
     while( token1 != NULL ) {
         r1[i++] = token1;
         token1 = strtok(NULL, "$");
     }
 
-    //send nonce+1 to client A as an authentication
+    unsigned char *secret_key = r1[0];
+
+    // //send nonce+1 to client A as an authentication
     int x = atoi(r1[3]) + 1;
     char nonce2[10];
     sprintf(nonce2,"%d",x);
+
+    // printf("%s\n", nonce2);
 
     strcpy(buffer,"|310|");
     strcat(buffer,nonce2);
@@ -550,12 +611,24 @@ void recieve_message(char *port, char *name, char *outenc, char *outfile)
 
     printf("%s sending an authentication message to the user\n", name);
 
-    //read the desired message sent by client A
+    // //read the desired message sent by client A
     read(newSocket,buffer,1024);
 
     printf("%s received a message from user\n", name);
 
-    printf("Message : %s\n", buffer);
+    char* t[2];
+    i = 0;
+    char * token11 = strtok(buffer, "|");
+    while(token11 != NULL) {
+        t[i++] = token11;
+        token11 = strtok(NULL, "|");
+    }
+
+    // unsigned char decrypted[1024];
+    // printf("%s\n", r[1]);
+    mydecrypt(t[0],secret_key,iv,atoi(t[1]),decrypted);
+
+    printf("Message : %s\n", decrypted);
 
     //write the desired message in a file
     FILE *fout;
@@ -591,7 +664,7 @@ void server(char *name, char *outenc, char *outfile, char *kdcip, int kdcport, u
     char *clientip = "127.0.0.1";
     char *clientport = "6000";
 
-    unsigned char *pwd = "masterkeyofb";
+    unsigned char *pwd = "qwertyuiopasdfgh";
 
     //register the client in KDC
     int value = registration(buffer, clientSocket, name, clientip, clientport, pwd);
@@ -605,7 +678,7 @@ void server(char *name, char *outenc, char *outfile, char *kdcip, int kdcport, u
     sleep(1);
 
     //recieve message from client A
-    // recieve_message(clientport, name, outenc, outfile);
+    recieve_message(clientport, name, outenc, outfile, pwd, iv);
 
     close(clientSocket);
 }
