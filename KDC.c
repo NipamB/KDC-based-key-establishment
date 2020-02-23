@@ -182,6 +182,8 @@ int myencrypt(char *plaintext, unsigned char *key, unsigned char *iv, char ciphe
     Base64Encode(ciphertext, strlen(ciphertext), &ciphertext_base);
     strcpy(ciphertext_base64,ciphertext_base);
 
+
+    // it should be the length of base64_encoding of ciphrt text??
     return ciphertext_len;
 }
 
@@ -266,7 +268,7 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
     else if(atoi(token) == 305) {
         puts("key request message");
 
-        char* r[3];
+        char* r[4];
         int i = 0;
         while(token != NULL) {
             r[i++] = token;
@@ -298,9 +300,9 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         }
 
         char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        char sharedKey[16];
+        char sharedKey[8];
         srand(time(0));
-        for(int j = 0; j < 16; j++) {
+        for(int j = 0; j < 8; j++) {
             sharedKey[j] = charset[rand() % 62];
         }
 
@@ -308,10 +310,10 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         int indexB = find(clientName, s[1], numOfReg);
         int indexA = find(clientName, s[0], numOfReg);
 
-        printf("%s\n", clientIpAddr[0]);
+        // printf("%s\n", clientIpAddr[0]);
         
         char str2[1024];
-        strcpy(str2, sharedKey);
+        strncpy(str2, sharedKey, 8);
         strcat(str2, s[0]);
         strcat(str2, s[1]);
         strcat(str2, s[2]);
@@ -339,7 +341,7 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         strcat(str2,length);
 
         char str1[1024];
-        strcpy(str1, sharedKey);
+        strncpy(str1, sharedKey, 8);
         strcat(str1, s[0]);
         strcat(str1, s[1]);
         strcat(str1, s[2]);
@@ -477,7 +479,7 @@ int main(int argc, char* argv[]) {
     }
 
     newsocket1 = accept(socket_id, (struct sockaddr *) &serverStorage, &addr_size);
-    if(newsocket < 0) {
+    if(newsocket1 < 0) {
         fprintf(out, "server accepted failed...\n");
         exit(0);
     }
