@@ -177,8 +177,6 @@ int myencrypt(char *plaintext, unsigned char *key, unsigned char *iv, char ciphe
     ciphertext_len = encrypt (plaintext, strlen ((char *)plaintext), key, iv,
                               ciphertext);
 
-    // printf("%s\n", ciphertext);
-    // printf("%d\n", ciphertext_len);
     char *ciphertext_base;
     
     Base64Encode(ciphertext, strlen(ciphertext), &ciphertext_base);
@@ -191,17 +189,6 @@ void mydecrypt(char * ciphertext_base64, unsigned char *key, unsigned char *iv, 
     unsigned char* base64DecodeOutput;
     size_t test;
     Base64Decode(ciphertext_base64, &base64DecodeOutput, &test);
-
-    // printf("%ld\n",strlen(base64DecodeOutput));
-
-    // printf("%s\n", base64DecodeOutput);
-    // printf("%d\n",strlen(base64DecodeOutput));
-
-    // read(newSocket,buffer,1024);
-
-    // int length = atoi(r[1]);
-
-    // unsigned char decryptedtext[1024];
 
     int decryptedtext_len;
 
@@ -247,8 +234,6 @@ int registration(char buffer[], int clientSocket, char *name, char * clientip, c
     //receive confirmation message for registration from KDC
     read(clientSocket,buffer,1024);
 
-    // printf("%s\n", buffer);
-
     //break the message by delimiter
     char *received[2];
     char * token = strtok(buffer, "|");
@@ -258,19 +243,12 @@ int registration(char buffer[], int clientSocket, char *name, char * clientip, c
         token = strtok(NULL, "|");
     }
 
-    // printf("%s %s\n",received[0],received[1]);
-    // if(strcmp(received[0],"302") == 0 && strcmp(received[1],clientname) == 0)
-    //     printf("user : %s\n", received[1]);
-    // else
-    //     printf("incorrect\n");
-
     printf("%s registered in KDC\n", name);
     return 1;
 }
 
-void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char nonce1[], char *othername, unsigned char *secert_key, unsigned char *iv)
+void send_message(char *inputfile, char *message_b, char *name, char *ipaddr_b, int port_b, char nonce1[], char *othername, unsigned char *secert_key, unsigned char *iv)
 {
-    // printf("%s %d\n", ipaddr_b, port_b);
     int clientSocket;
     char buffer[1024];
     struct sockaddr_in serverAddr;
@@ -294,8 +272,6 @@ void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char 
     strcat(buffer,name);
     strcat(buffer,"|");
 
-    // printf("sent to b : %s\n", buffer);
-
     write(clientSocket,buffer,1024);
 
     printf("%s sending secret key to %s\n", name, othername);
@@ -304,8 +280,6 @@ void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char 
     read(clientSocket,buffer,1024);
 
     printf("%s received an authentication message from %s\n", name, othername);
-
-    // printf("%s\n",buffer);
 
     char *r[3];
     char * token = strtok(buffer, "|");
@@ -317,9 +291,14 @@ void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char 
 
     //check if the nonce is correct
     if(atoi(nonce1)+1 == atoi(r[1])){
-        //send desired message to client B
-        char * message = "hello there! nice meeting you";
-        // strcpy(buffer,message);
+        char message[1024];
+
+        FILE *fin;
+
+        fin = fopen(inputfile,"r");
+        fgets(message,1024,fin);
+
+        fclose(fin);
 
         int ciphertext_len;
 
@@ -344,7 +323,7 @@ void send_message(char *message_b, char *name, char *ipaddr_b, int port_b, char 
     close(clientSocket);
 }
 
-void requestKey(char buffer[], int clientSocket, char *name, char *othername, unsigned char *key, unsigned char *iv)
+void requestKey(char buffer[], int clientSocket, char *inputfile, char *name, char *othername, unsigned char *key, unsigned char *iv)
 {
     //305 : Key request message
     strcpy(buffer,"|");
@@ -372,37 +351,15 @@ void requestKey(char buffer[], int clientSocket, char *name, char *othername, un
     Nonce++;
 
     strcat(message,nonce1);
-    // printf("%s\n", message);
-
-    // unsigned char *key1 = "masterkeyofa";
-    // unsigned char *iv1 = "globalinitial";
-
-    // strcat(message,"hello there");
-
-    //encrypting message with A's key
-    // unsigned char ciphertext[1024];
 
     int ciphertext_len;
-    // printf("%s\t%s\n", key, iv);
-
-    // ciphertext_len = encrypt (message, strlen ((char *)message), key, iv,
-    //                           ciphertext);
-
-    // // printf("%s\n", ciphertext);
-    // // printf("%d\n", ciphertext_len);
+    
     char ciphertext_base64[1024];
 
-    // strcpy(key,"verybadkeyqwerty");
-
     ciphertext_len = myencrypt(message,key,iv,ciphertext_base64);
-    
-    // Base64Encode(ciphertext, strlen(ciphertext), &ciphertext_base64);
-
 
     strcat(buffer,ciphertext_base64);
     strcat(buffer,"|");
-
-    // printf("%s\n", ciphertext_base64);
 
     char length[10];
     sprintf(length,"%d",ciphertext_len);
@@ -410,17 +367,8 @@ void requestKey(char buffer[], int clientSocket, char *name, char *othername, un
     strcat(buffer,length);
     strcat(buffer,"|");
 
-    // printf("%s\n", length);
-
     strcat(buffer,ida);
     strcat(buffer,"|");
-
-    // unsigned char decrypted[1024];
-    // // printf("%s\n", r[1]);
-    // mydecrypt(ciphertext_base64,key,iv,ciphertext_len,decrypted);
-    // printf("decrypted : %s\n", decrypted);
-
-    // printf("%s\n",buffer);
 
     //send key request message to KDC
     write(clientSocket,buffer,1024);
@@ -429,8 +377,6 @@ void requestKey(char buffer[], int clientSocket, char *name, char *othername, un
 
     //get the secret key appended with the message to be sent to the other client
     read(clientSocket,buffer,1024);
-
-    // printf("%s\n", buffer);
 
     printf("%s got the key of %s from KDC\n", name, othername);
 
@@ -443,24 +389,13 @@ void requestKey(char buffer[], int clientSocket, char *name, char *othername, un
         token1 = strtok(NULL, "|");
     }
 
-    // printf("r1 : %s\n", r1[2]);
-
     int len = atoi(r1[2]);
-
-    // unsigned char *key = "verybadkeyqwerty";
-    // unsigned char *iv = (unsigned char *)malloc(AES_BLOCK_SIZE*sizeof(unsigned char));
-    // unsigned char iv[AES_BLOCK_SIZE];
-    // memset(iv, 0x00, AES_BLOCK_SIZE);
     
-    // printf("key : %s\n", key);
     unsigned char decrypted[1024];
-    // printf("%s\n", r[1]);
+
     mydecrypt(r1[1],key,iv,len,decrypted);
-    // char *decrypted = r[1];
 
-    // printf("decrypted : %s\n", decrypted);
-
-    // //break the message encrypted with A's key to get B's ip address and port number
+    //break the message encrypted with A's key to get B's ip address and port number
     char *r2[8];
     char * token2 = strtok(decrypted, "$");
     i = 0;
@@ -476,24 +411,13 @@ void requestKey(char buffer[], int clientSocket, char *name, char *othername, un
     strcat(message_b,"|");
     strcat(message_b,r2[7]);
 
-
-    // char *r3[2];
-    // char * token3 = strtok(r2[0], "$");
-    // i = 0;
-    // while( token3 != NULL ) {
-    //     r3[i++] = token3;
-    //     token3 = strtok(NULL, "$");
-    // }
-
     char * ipaddr_b = r2[4];
     int port_b = atoi(r2[5]);
 
     char *sercet_key = r2[0];
-    // printf("Port : %d",port_b);
-    // char nonce1[10] = r2[3];
 
-    // //after getting B's ip address and port number, send message to B
-    send_message(message_b, name, ipaddr_b, port_b, nonce1, othername, sercet_key, iv);
+    //after getting B's ip address and port number, send message to B
+    send_message(inputfile, message_b, name, ipaddr_b, port_b, nonce1, othername, sercet_key, iv);
 }
 
 void client(char *name, char *othername, char *inputfile, char *kdcip, int kdcport, unsigned char *iv)
@@ -529,7 +453,7 @@ void client(char *name, char *othername, char *inputfile, char *kdcip, int kdcpo
     sleep(1);
 
     //request for secret key key from KDC to communicate with otehr client
-    requestKey(buffer, clientSocket, name, othername, pwd, iv);
+    requestKey(buffer, clientSocket, inputfile, name, othername, pwd, iv);
 
     close(clientSocket);
 }
@@ -564,8 +488,6 @@ void recieve_message(char *port, char *name, char *outenc, char *outfile, unsign
 
     printf("%s recieved a secret key from a user\n", name);
 
-    // printf("%s\n", buffer);
-
     //break to message to extract secrey key and nonce
     char *r[4];
     char * token = strtok(buffer, "|");
@@ -578,11 +500,8 @@ void recieve_message(char *port, char *name, char *outenc, char *outfile, unsign
     int len = atoi(r[2]);
 
     unsigned char decrypted[1024];
-    // printf("%s\n", r[1]);
-    mydecrypt(r[1],key,iv,len,decrypted);
-    // char *decrypted = r[1];
 
-    // printf("decrypted : %s\n", decrypted);
+    mydecrypt(r[1],key,iv,len,decrypted);
 
     char *r1[6];
     char * token1 = strtok(decrypted, "$");
@@ -624,8 +543,13 @@ void recieve_message(char *port, char *name, char *outenc, char *outfile, unsign
         token11 = strtok(NULL, "|");
     }
 
-    // unsigned char decrypted[1024];
-    // printf("%s\n", r[1]);
+    FILE *fout1;
+
+    fout1 = fopen(outenc,"w");
+    fputs(t[0],fout1);
+
+    fclose(fout1);
+
     mydecrypt(t[0],secret_key,iv,atoi(t[1]),decrypted);
 
     printf("Message : %s\n", decrypted);
@@ -634,7 +558,7 @@ void recieve_message(char *port, char *name, char *outenc, char *outfile, unsign
     FILE *fout;
     fout = fopen(outfile,"w");
 
-    fputs(buffer,fout);
+    fputs(decrypted,fout);
 
     fclose(fout);
 
@@ -668,11 +592,6 @@ void server(char *name, char *outenc, char *outfile, char *kdcip, int kdcport, u
 
     //register the client in KDC
     int value = registration(buffer, clientSocket, name, clientip, clientport, pwd);
-    // printf("%d\n",value);
-    // if(value)
-    //     printf("Registration passed\n");
-    // else
-    //     printf("Registration failed\n");
 
     //sleep for sometime so that all the clients register themselves in KDC
     sleep(1);
@@ -728,7 +647,6 @@ int main(int argc, char *argv[])
     }
 
     iv = (unsigned char *)malloc(AES_BLOCK_SIZE*sizeof(unsigned char));
-    // unsigned char iv[AES_BLOCK_SIZE];
     memset(iv, 0x00, AES_BLOCK_SIZE);
 
     if(strcmp(SR,"S") == 0)

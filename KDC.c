@@ -327,13 +327,13 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         }
 
         char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        char sharedKey[8];
+        char sharedKey[16];
         srand(time(0));
-        for(int j = 0; j < 8; j++) {
+        for(int j = 0; j < 16; j++) {
             sharedKey[j] = charset[rand() % 62];
         }
         sharedKey[15] = '\0';
-        strcpy(sharedKey, temp);
+        // strcpy(sharedKey, temp);
         // printf("shared key = %s\n", sharedKey);
         // printf("%s\n", s[1]);
 
@@ -343,19 +343,12 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         int indexB = find(clientName, s[1], numOfReg);
         // int indexA = find(clientName, s[0], numOfReg);
 
-<<<<<<< HEAD
         // printf("%d %d\n", indexA, indexB);
         // printf("%s\n", clientIpAddr[0]);
         
         char str2[1024];
         strncpy(str2, sharedKey, 16);
         strcat(str2,"$");
-=======
-        // printf("%s\n", clientIpAddr[0]);
-        
-        char str2[1024];
-        strncpy(str2, sharedKey, 8);
->>>>>>> 6304bd9b81bb667f9fa460023b7b3a6f1e28f8ed
         strcat(str2, s[0]);
         strcat(str2,"$");
         strcat(str2, s[1]);
@@ -388,12 +381,8 @@ void receive_message(char* port, char* outfile, char* passwdfile, int newsocket)
         strcat(str2,length);
 
         char str1[1024];
-<<<<<<< HEAD
         strncpy(str1, sharedKey, 16);
         strcat(str1,"$");
-=======
-        strncpy(str1, sharedKey, 8);
->>>>>>> 6304bd9b81bb667f9fa460023b7b3a6f1e28f8ed
         strcat(str1, s[0]);
         strcat(str1,"$");
         strcat(str1, s[1]);
